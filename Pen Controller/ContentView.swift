@@ -16,13 +16,13 @@ struct ContentView: View {
         if UIDevice.current.userInterfaceIdiom == .pad {
             NavigationStack {
                 InputProducerScreen(config: config)
-                    .navigationTitle("Input Producer")
+                    .navigationTitle("Pen Controller")
             }
         } else {
             UnsupportedPlatformView()
         }
         #elseif os(macOS)
-        InputConsumerView(config: config, port: 9999)
+        InputConsumerView(config: config)
         #else
         UnsupportedPlatformView()
         #endif
@@ -45,81 +45,75 @@ private struct UnsupportedPlatformView: View {
 private struct InputProducerScreen: View {
     let config: InputProcessingConfig
     @StateObject private var state = InputProducerState()
-    @State private var isConnecting = false
-    @AppStorage("destinationHost") private var destinationHost: String = "255.255.255.255"
-    @AppStorage("destinationPort") private var destinationPort: Int = 9999
-    @State private var showingConnectSheet = false
+    @StateObject private var transport = MultipeerTransport(role: .browser)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Input Producer (iPadOS)")
-                .font(.title2)
-            Text("Status: \(state.isSending ? "Streaming" : "Idle")")
-            Text("Force: \(state.lastForce, specifier: "%.2f")")
-            Text("Pressure state: \(state.lastState.rawValue)")
-            Text("Timestamp: \(state.lastTimestamp, specifier: "%.3f")")
-            Text("Destination: \(destinationHost):\(destinationPort)")
-                .foregroundStyle(.secondary)
-            
-            if state.isConnected {
-                Text("Connection: Connected to \(state.connectedPeerName ?? destinationHost)")
-                    .foregroundStyle(.green)
-            } else if isConnecting {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Connecting to \(destinationHost):\(destinationPort)...")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pair with your Mac")
+                        .font(.title2)
+                    Text("Bluetooth automatically handles the connection. Choose your Mac below, then start drawing with Apple Pencil.")
+                        .foregroundStyle(.secondary)
                 }
-            } else {
-                Text("Connection: Not connected")
-                    .foregroundStyle(.secondary)
-            }
-            
-            Text("Point Apple Pencil here to stream deltas over UDP.")
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding()
-        .onChange(of: state.isConnected) { newValue in
-            if newValue { isConnecting = false }
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Connect") { showingConnectSheet = true }
-            }
-        }
-        .sheet(isPresented: $showingConnectSheet) {
-            NavigationView {
-                Form {
-                    Section(header: Text("Destination")) {
-                        TextField("Host (e.g. 192.168.1.10)", text: $destinationHost)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                        TextField("Port", value: $destinationPort, format: .number)
-                            .keyboardType(.numberPad)
-                    }
-                    Section(footer: Text("Enter your Mac's IP address and the UDP port the macOS app listens on.")) {
-                        EmptyView()
-                    }
-                }
-                .navigationTitle("Connect")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showingConnectSheet = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
-                            isConnecting = true
-                            showingConnectSheet = false
+
+                ConnectionStatusCard(isConnected: state.isConnected, peerName: state.connectedPeerName)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Nearby Macs")
+                        .font(.headline)
+                    if transport.availablePeers.isEmpty {
+                        Text("Searching for nearby Macs…")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(transport.availablePeers, id: \.self) { peer in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(peer.displayName)
+                                    if transport.connectedPeers.contains(peer) {
+                                        Text("Connected")
+                                            .font(.caption)
+                                            .foregroundStyle(.green)
+                                    }
+                                }
+                                Spacer()
+                                Button(transport.connectedPeers.contains(peer) ? "Connected" : "Connect") {
+                                    transport.invite(peer: peer)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(transport.connectedPeers.contains(peer))
+                            }
+                            .padding()
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     }
                 }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Streaming")
+                        .font(.headline)
+                    Text("Status: \(state.isSending ? "Streaming" : "Idle")")
+                    Text("Force: \(state.lastForce, specifier: "%.2f")")
+                    Text("Pressure state: \(state.lastState.rawValue)")
+                    Text("Timestamp: \(state.lastTimestamp, specifier: "%.3f")")
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
             }
+            .padding()
+        }
+        .onReceive(transport.$isConnected) { isConnected in
+            state.isConnected = isConnected
+        }
+        .onReceive(transport.$connectedPeerName) { name in
+            state.connectedPeerName = name
         }
         .background(
             InputProducerView(
                 state: state,
-                destinationHost: destinationHost,
-                destinationPort: UInt16(clamping: destinationPort),
+                transport: transport,
                 config: config
             )
             .ignoresSafeArea()
@@ -127,6 +121,29 @@ private struct InputProducerScreen: View {
     }
 }
 #endif
+
+private struct ConnectionStatusCard: View {
+    let isConnected: Bool
+    let peerName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Connection")
+                .font(.headline)
+            if isConnected {
+                Text("Connected to \(peerName ?? "Mac")")
+                    .foregroundStyle(.green)
+            } else {
+                Text("Not connected")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
 
 #Preview {
     ContentView()

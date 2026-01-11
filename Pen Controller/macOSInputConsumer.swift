@@ -4,7 +4,6 @@ import SwiftUI
 #if os(macOS)
 import AppKit
 import Combine
-import SystemConfiguration
 import ApplicationServices
 
 final class InputConsumerState: ObservableObject {
@@ -16,7 +15,7 @@ final class InputConsumerState: ObservableObject {
 }
 
 final class InputConsumer {
-    private let server = UDPServer()
+    private let transport = MultipeerTransport(role: .advertiser)
     private let processor: InputProcessor
     private var lastEventTimestamp: TimeInterval = 0
     private var lastReceiveTime = Date()
@@ -27,18 +26,31 @@ final class InputConsumer {
         minInterval = 1 / maxHz
     }
 
-    func start(port: UInt16, state: InputConsumerState) {
-        server.onEvent = { [weak self] event in
+    func start(state: InputConsumerState) {
+        transport.onReceiveData = { [weak self] data in
+            guard let event = PacketCodec.decode(data) else { return }
             self?.handle(event: event, state: state)
         }
-        server.onHello = { name in
-            DispatchQueue.main.async {
+        transport.start()
+    }
+
+    func observeConnection(state: InputConsumerState) {
+        transport.$isConnected
+            .receive(on: DispatchQueue.main)
+            .sink { isConnected in
+                state.isConnected = isConnected
+            }
+            .store(in: &cancellables)
+
+        transport.$connectedPeerName
+            .receive(on: DispatchQueue.main)
+            .sink { name in
                 state.connectedPeerName = name
             }
-        }
-        server.start(port: port)
-        state.isConnected = true
+            .store(in: &cancellables)
     }
+
+    private var cancellables = Set<AnyCancellable>()
 
     private func handle(event: InputEvent, state: InputConsumerState) {
         let now = Date()
@@ -98,92 +110,42 @@ final class InputConsumer {
 
 struct InputConsumerView: View {
     @StateObject private var state = InputConsumerState()
-    @State private var localIPs: [String] = []
     private let consumer: InputConsumer
-    private let port: UInt16
 
-    init(config: InputProcessingConfig, port: UInt16) {
+    init(config: InputProcessingConfig) {
         self.consumer = InputConsumer(config: config)
-        self.port = port
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Input Consumer (macOS)")
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Pen Controller")
                 .font(.title2)
-            Text("Status: \(state.isReceiving ? "Receiving" : "Idle")")
-            Text("Connected to: \(state.connectedPeerName ?? "—")")
-            if let name = state.connectedPeerName {
-                Text("Peer: \(name)")
-                    .foregroundStyle(.secondary)
-            }
-            Text("Connection: \(state.isConnected ? "Ready" : "Not Ready")")
-            Text("Last event: \(state.lastEventTime, specifier: "%.3f")")
-            Text("Pressure state: \(state.lastPressureState.rawValue)")
-            Text("UDP Port: \(port)")
-            Text("Your IP: \(localIPs.isEmpty ? "Unknown" : localIPs.joined(separator: ", "))")
+            Text("Ready to pair over Bluetooth")
                 .foregroundStyle(.secondary)
-            Text("Ensure Accessibility permissions are granted.")
+
+            ConnectionStatusCard(isConnected: state.isConnected, peerName: state.connectedPeerName)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Streaming")
+                    .font(.headline)
+                Text("Status: \(state.isReceiving ? "Receiving" : "Idle")")
+                Text("Last event: \(state.lastEventTime, specifier: "%.3f")")
+                Text("Pressure state: \(state.lastPressureState.rawValue)")
+            }
+
+            Text("Make sure Accessibility permissions are enabled so the cursor can move.")
                 .foregroundStyle(.secondary)
         }
         .padding()
         .onAppear {
-            // Prompt user to enable Accessibility if mouse events don’t work
             if !AXIsProcessTrusted() {
-                // Open System Settings Accessibility pane
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                     NSWorkspace.shared.open(url)
                 }
             }
+            consumer.start(state: state)
+            consumer.observeConnection(state: state)
         }
-        .onAppear {
-            consumer.start(port: port, state: state)
-            localIPs = NetworkInfo.localIPv4Addresses()
-        }
-    }
-}
-
-private enum NetworkInfo {
-    static func localIPv4Addresses() -> [String] {
-        var results: [(name: String, ip: String)] = []
-        var ifaddrPtr: UnsafeMutablePointer<ifaddrs>? = nil
-        guard getifaddrs(&ifaddrPtr) == 0, let first = ifaddrPtr else { return [] }
-        defer { freeifaddrs(first) }
-
-        var ptr: UnsafeMutablePointer<ifaddrs>? = first
-        while let ifa = ptr?.pointee {
-            let flags = Int32(ifa.ifa_flags)
-            if let addr = ifa.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET),
-               (flags & IFF_UP) == IFF_UP, (flags & IFF_LOOPBACK) == 0 {
-                var addrIn = UnsafeRawPointer(addr).assumingMemoryBound(to: sockaddr_in.self).pointee
-                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                let ipCString = inet_ntop(AF_INET, &addrIn.sin_addr, &buffer, socklen_t(INET_ADDRSTRLEN))
-                if let ipCString {
-                    let ip = String(cString: ipCString)
-                    let name = String(cString: ifa.ifa_name)
-                    results.append((name: name, ip: ip))
-                }
-            }
-            ptr = ifa.ifa_next
-        }
-
-        // Prefer en0 first (typical primary Ethernet/Wi‑Fi), then others
-        let sorted = results.sorted { a, b in
-            if a.name == "en0" && b.name != "en0" { return true }
-            if b.name == "en0" && a.name != "en0" { return false }
-            return a.name < b.name
-        }
-
-        var seen = Set<String>()
-        var ips: [String] = []
-        for item in sorted {
-            if !seen.contains(item.ip) {
-                seen.insert(item.ip)
-                ips.append(item.ip)
-            }
-        }
-        return ips
     }
 }
 #endif
-
