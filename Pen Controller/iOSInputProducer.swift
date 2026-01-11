@@ -1,14 +1,19 @@
 import Foundation
 import SwiftUI
+import Combine
 
 #if os(iOS)
 import UIKit
+import Network
 
 final class InputProducerState: ObservableObject {
     @Published var isSending = false
     @Published var lastForce: Double = 0
     @Published var lastState: PressureState = .move
     @Published var lastTimestamp: TimeInterval = 0
+    @Published var isConnected: Bool = false
+    @Published var lastAck: TimeInterval = 0
+    @Published var connectedPeerName: String? = nil
 }
 
 struct InputProducerView: UIViewRepresentable {
@@ -25,6 +30,7 @@ struct InputProducerView: UIViewRepresentable {
 
     func updateUIView(_ uiView: PencilInputView, context: Context) {
         uiView.updateConfig(config)
+        uiView.updateDestination(host: destinationHost, port: destinationPort)
     }
 }
 
@@ -33,6 +39,7 @@ final class PencilInputView: UIView {
     private var processor: InputProcessor?
     private weak var state: InputProducerState?
     private var lastLocation: CGPoint?
+    private var isConnected: Bool = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -46,12 +53,43 @@ final class PencilInputView: UIView {
 
     func configure(destinationHost: String, destinationPort: UInt16, config: InputProcessingConfig, state: InputProducerState) {
         udpClient = UDPClient(host: .init(destinationHost), port: .init(rawValue: destinationPort) ?? 9999)
+        udpClient?.onAck = { [weak self] name in
+            guard let self else { return }
+            self.isConnected = true
+            DispatchQueue.main.async {
+                self.state?.isConnected = true
+                self.state?.lastAck = Date().timeIntervalSince1970
+                self.state?.connectedPeerName = name
+            }
+        }
         processor = InputProcessor(config: config)
         self.state = state
+        let deviceName = UIDevice.current.name
+        udpClient?.send(text: "HELLO:\(deviceName)")
     }
 
     func updateConfig(_ config: InputProcessingConfig) {
         processor = InputProcessor(config: config)
+    }
+
+    func updateDestination(host: String, port: UInt16) {
+        udpClient = UDPClient(host: .init(host), port: .init(rawValue: port) ?? 9999)
+        self.isConnected = false
+        DispatchQueue.main.async { [weak self] in
+            self?.state?.isConnected = false
+            self?.state?.connectedPeerName = nil
+        }
+        udpClient?.onAck = { [weak self] name in
+            guard let self else { return }
+            self.isConnected = true
+            DispatchQueue.main.async {
+                self.state?.isConnected = true
+                self.state?.lastAck = Date().timeIntervalSince1970
+                self.state?.connectedPeerName = name
+            }
+        }
+        let deviceName = UIDevice.current.name
+        udpClient?.send(text: "HELLO:\(deviceName)")
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -68,7 +106,7 @@ final class PencilInputView: UIView {
     }
 
     private func handleTouches(_ touches: Set<UITouch>, event: UIEvent?) {
-        guard let touch = touches.first, touch.type == .pencil else { return }
+        guard let touch = touches.first, touch.type == .pencil || touch.type == .direct else { return }
         let coalesced = event?.coalescedTouches(for: touch) ?? [touch]
         for sample in coalesced {
             sendSample(sample)
@@ -108,3 +146,4 @@ final class PencilInputView: UIView {
     }
 }
 #endif
+

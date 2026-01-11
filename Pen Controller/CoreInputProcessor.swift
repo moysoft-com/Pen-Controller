@@ -36,7 +36,8 @@ final class InputProcessor {
 
     private func applySmoothing(delta: SIMD2<Double>) -> SIMD2<Double> {
         let alpha = max(0, min(1, config.smoothingFactor))
-        filteredDelta = filteredDelta &* (1 - alpha) &+ delta &* alpha
+        let oneMinusAlpha = 1.0 - alpha
+        filteredDelta = filteredDelta * SIMD2<Double>(repeating: oneMinusAlpha) + delta * SIMD2<Double>(repeating: alpha)
         return filteredDelta
     }
 
@@ -44,7 +45,7 @@ final class InputProcessor {
         let magnitude = sqrt(delta.x * delta.x + delta.y * delta.y)
         guard magnitude > 0 else { return delta }
         let scale = min(config.maxAcceleration, max(config.minAcceleration, 1 + magnitude * config.accelerationFactor))
-        return delta &* scale
+        return delta * SIMD2<Double>(repeating: scale)
     }
 
     private func applyDriftCorrection(delta: SIMD2<Double>) -> SIMD2<Double> {
