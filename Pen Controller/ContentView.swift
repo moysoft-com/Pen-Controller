@@ -111,6 +111,12 @@ private struct InputProducerScreen: View {
         .onReceive(transport.$connectedPeerName) { name in
             state.connectedPeerName = name
         }
+        .onAppear {
+            transport.start()
+        }
+        .onDisappear {
+            transport.stop()
+        }
         .background(
             InputProducerView(
                 state: state,
