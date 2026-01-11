@@ -1,4 +1,5 @@
 import SwiftUI
+import MultipeerConnectivity
 
 struct ContentView: View {
     private let config = InputProcessingConfig(
@@ -121,29 +122,6 @@ private struct InputProducerScreen: View {
     }
 }
 #endif
-
-private struct ConnectionStatusCard: View {
-    let isConnected: Bool
-    let peerName: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Connection")
-                .font(.headline)
-            if isConnected {
-                Text("Connected to \(peerName ?? "Mac")")
-                    .foregroundStyle(.green)
-            } else {
-                Text("Not connected")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-}
 
 #Preview {
     ContentView()

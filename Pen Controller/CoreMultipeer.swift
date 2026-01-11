@@ -1,5 +1,20 @@
 import Foundation
 import MultipeerConnectivity
+import Combine
+
+#if os(iOS)
+import UIKit
+#endif
+
+private func defaultPeerDisplayName() -> String {
+    #if os(iOS)
+    return UIDevice.current.name
+    #elseif os(macOS)
+    return Host.current().localizedName ?? "Device"
+    #else
+    return "Device"
+    #endif
+}
 
 final class MultipeerTransport: NSObject, ObservableObject {
     enum Role {
@@ -21,7 +36,7 @@ final class MultipeerTransport: NSObject, ObservableObject {
 
     var onReceiveData: ((Data) -> Void)?
 
-    init(role: Role, displayName: String = Host.current().localizedName ?? "Device") {
+    init(role: Role, displayName: String = defaultPeerDisplayName()) {
         self.role = role
         peerID = MCPeerID(displayName: displayName)
         session = MCSession(peer: peerID, securityIdentity: nil, encryptionPreference: .required)
