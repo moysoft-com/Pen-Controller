@@ -1,10 +1,8 @@
 import Foundation
 import SwiftUI
-import Combine
 
 #if os(iOS)
 import UIKit
-import Network
 
 final class InputProducerState: ObservableObject {
     @Published var isSending = false
@@ -12,34 +10,31 @@ final class InputProducerState: ObservableObject {
     @Published var lastState: PressureState = .move
     @Published var lastTimestamp: TimeInterval = 0
     @Published var isConnected: Bool = false
-    @Published var lastAck: TimeInterval = 0
     @Published var connectedPeerName: String? = nil
 }
 
 struct InputProducerView: UIViewRepresentable {
     @ObservedObject var state: InputProducerState
-    let destinationHost: String
-    let destinationPort: UInt16
+    let transport: MultipeerTransport
     let config: InputProcessingConfig
 
     func makeUIView(context: Context) -> PencilInputView {
         let view = PencilInputView()
-        view.configure(destinationHost: destinationHost, destinationPort: destinationPort, config: config, state: state)
+        view.configure(transport: transport, config: config, state: state)
         return view
     }
 
     func updateUIView(_ uiView: PencilInputView, context: Context) {
         uiView.updateConfig(config)
-        uiView.updateDestination(host: destinationHost, port: destinationPort)
+        uiView.updateTransport(transport)
     }
 }
 
 final class PencilInputView: UIView {
-    private var udpClient: UDPClient?
+    private var transport: MultipeerTransport?
     private var processor: InputProcessor?
     private weak var state: InputProducerState?
     private var lastLocation: CGPoint?
-    private var isConnected: Bool = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -51,45 +46,19 @@ final class PencilInputView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(destinationHost: String, destinationPort: UInt16, config: InputProcessingConfig, state: InputProducerState) {
-        udpClient = UDPClient(host: .init(destinationHost), port: .init(rawValue: destinationPort) ?? 9999)
-        udpClient?.onAck = { [weak self] name in
-            guard let self else { return }
-            self.isConnected = true
-            DispatchQueue.main.async {
-                self.state?.isConnected = true
-                self.state?.lastAck = Date().timeIntervalSince1970
-                self.state?.connectedPeerName = name
-            }
-        }
+    func configure(transport: MultipeerTransport, config: InputProcessingConfig, state: InputProducerState) {
+        self.transport = transport
         processor = InputProcessor(config: config)
         self.state = state
-        let deviceName = UIDevice.current.name
-        udpClient?.send(text: "HELLO:\(deviceName)")
+        transport.start()
     }
 
     func updateConfig(_ config: InputProcessingConfig) {
         processor = InputProcessor(config: config)
     }
 
-    func updateDestination(host: String, port: UInt16) {
-        udpClient = UDPClient(host: .init(host), port: .init(rawValue: port) ?? 9999)
-        self.isConnected = false
-        DispatchQueue.main.async { [weak self] in
-            self?.state?.isConnected = false
-            self?.state?.connectedPeerName = nil
-        }
-        udpClient?.onAck = { [weak self] name in
-            guard let self else { return }
-            self.isConnected = true
-            DispatchQueue.main.async {
-                self.state?.isConnected = true
-                self.state?.lastAck = Date().timeIntervalSince1970
-                self.state?.connectedPeerName = name
-            }
-        }
-        let deviceName = UIDevice.current.name
-        udpClient?.send(text: "HELLO:\(deviceName)")
+    func updateTransport(_ transport: MultipeerTransport) {
+        self.transport = transport
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -128,7 +97,9 @@ final class PencilInputView: UIView {
             pressureState: pressureState,
             buttonDown: pressureState != .move
         )
-        udpClient?.send(event: event)
+        if let data = PacketCodec.encode(event) {
+            transport?.send(data: data)
+        }
         state?.lastForce = touch.force
         state?.lastState = pressureState
         state?.lastTimestamp = touch.timestamp
@@ -146,4 +117,3 @@ final class PencilInputView: UIView {
     }
 }
 #endif
-
