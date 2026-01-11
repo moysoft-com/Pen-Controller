@@ -51,7 +51,6 @@ final class PencilInputView: UIView {
         self.transport = transport
         processor = InputProcessor(config: config)
         self.state = state
-        transport.start()
     }
 
     func updateConfig(_ config: InputProcessingConfig) {

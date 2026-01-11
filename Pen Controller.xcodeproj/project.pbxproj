@@ -254,6 +254,10 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_KEY_NSBonjourServices[sdk=iphoneos*]" = "_pencilinput._tcp";
+				"INFOPLIST_KEY_NSBonjourServices[sdk=iphonesimulator*]" = "_pencilinput._tcp";
+				"INFOPLIST_KEY_NSLocalNetworkUsageDescription[sdk=iphoneos*]" = "Pen Controller uses the local network to find your Mac.";
+				"INFOPLIST_KEY_NSLocalNetworkUsageDescription[sdk=iphonesimulator*]" = "Pen Controller uses the local network to find your Mac.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -299,6 +303,10 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_KEY_NSBonjourServices[sdk=iphoneos*]" = "_pencilinput._tcp";
+				"INFOPLIST_KEY_NSBonjourServices[sdk=iphonesimulator*]" = "_pencilinput._tcp";
+				"INFOPLIST_KEY_NSLocalNetworkUsageDescription[sdk=iphoneos*]" = "Pen Controller uses the local network to find your Mac.";
+				"INFOPLIST_KEY_NSLocalNetworkUsageDescription[sdk=iphonesimulator*]" = "Pen Controller uses the local network to find your Mac.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
